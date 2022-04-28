@@ -6,12 +6,11 @@ const optionsScript = document.querySelector('script[type=esms-options]');
 export const esmsInitOptions = optionsScript ? JSON.parse(optionsScript.innerHTML) : {};
 Object.assign(esmsInitOptions, self.esmsInitOptions || {});
 
-export let shimMode = !!esmsInitOptions.shimMode;
+export let shimMode = false;
 
-export const importHook = globalHook(shimMode && esmsInitOptions.onimport);
-export const resolveHook = globalHook(shimMode && esmsInitOptions.resolve);
-export let fetchHook = esmsInitOptions.fetch ? globalHook(esmsInitOptions.fetch) : fetch;
-export const metaHook = esmsInitOptions.meta ? globalHook(shimMode && esmsInitOptions.meta) : noop;
+if (esmsInitOptions.shimMode) setShimMode();
+
+export let importHook, resolveHook, fetchHook, metaHook;
 
 export const skip = esmsInitOptions.skip ? new RegExp(esmsInitOptions.skip) : null;
 
@@ -42,6 +41,10 @@ export const jsonModulesEnabled = enable.includes('json-modules');
 
 export function setShimMode () {
   shimMode = true;
+  importHook = esmsInitOptions.onimport && globalHook(esmsInitOptions.onimport);
+  resolveHook = esmsInitOptions.resolve && globalHook(esmsInitOptions.resolve);
+  fetchHook = esmsInitOptions.fetch ? globalHook(esmsInitOptions.fetch) : fetch;
+  metaHook = esmsInitOptions.meta ? globalHook(esmsInitOptions.meta) : noop;
 }
 
 export const edge = !navigator.userAgentData && !!navigator.userAgent.match(/Edge\/\d+\.\d+/);

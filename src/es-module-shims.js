@@ -46,13 +46,14 @@ async function _resolve (id, parentUrl) {
   };
 }
 
-const resolve = resolveHook ? async (id, parentUrl) => {
+async function resolve (id, parentUrl) {
+  if (!resolveHook) return _resolve(id, parentUrl);
   let result = resolveHook(id, parentUrl, defaultResolve);
   // will be deprecated in next major
   if (result && result.then)
     result = await result;
   return result ? { r: result, b: !resolveIfNotPlainOrUrl(id, parentUrl) && !isURL(id) } : _resolve(id, parentUrl);
-} : _resolve;
+}
 
 // importShim('mod');
 // importShim('mod', { opts });
@@ -65,14 +66,13 @@ async function importShim (id, ...args) {
     parentUrl = pageBaseUrl;
   // needed for shim check
   await initPromise;
-  if (importHook) await importHook(id, typeof args[1] !== 'string' ? args[1] : {}, parentUrl);
   if (acceptingImportMaps || shimMode || !baselinePassthrough) {
     processImportMaps();
     if (!shimMode)
       acceptingImportMaps = false;
   }
   await importMapPromise;
-  return topLevelLoad((await resolve(id, parentUrl)).r, { credentials: 'same-origin' });
+  return topLevelLoad(id, parentUrl, { credentials: 'same-origin' });
 }
 
 self.importShim = importShim;
@@ -178,11 +178,12 @@ let importMapPromise = initPromise;
 let firstPolyfillLoad = true;
 let acceptingImportMaps = true;
 
-async function topLevelLoad (url, fetchOpts, source, nativelyLoaded, lastStaticLoadPromise) {
+async function topLevelLoad (url, parentUrl, fetchOpts, source, nativelyLoaded, lastStaticLoadPromise) {
+  url = (await resolve(url, parentUrl)).r;
   if (!shimMode)
     acceptingImportMaps = false;
   await importMapPromise;
-  if (importHook) await importHook(id, typeof args[1] !== 'string' ? args[1] : {}, parentUrl);
+  if (importHook) await importHook(url, fetchOpts, parentUrl);
   // early analysis opt-out - no need to even fetch if we have feature support
   if (!shimMode && baselinePassthrough) {
     // for polyfill case, only dynamic import needs a return value here, and dynamic import will never pass nativelyLoaded
@@ -197,14 +198,16 @@ async function topLevelLoad (url, fetchOpts, source, nativelyLoaded, lastStaticL
   lastLoad = undefined;
   resolveDeps(load, seen);
   await lastStaticLoadPromise;
-  if (source && !shimMode && !load.n && !self.ESMS_DEBUG) {
-    const module = await dynamicImport(createBlob(source), { errUrl: source });
-    if (revokeBlobURLs) revokeObjectURLs(Object.keys(seen));
-    return module;
-  }
-  if (firstPolyfillLoad && !shimMode && load.n && nativelyLoaded) {
-    onpolyfill();
-    firstPolyfillLoad = false;
+  if (!shimMode) {
+    if (source && !load.n && !self.ESMS_DEBUG) {
+      const module = await dynamicImport(createBlob(source), { errUrl: source });
+      if (revokeBlobURLs) revokeObjectURLs(Object.keys(seen));
+      return module;
+    }
+    if (firstPolyfillLoad && load.n && nativelyLoaded) {
+      onpolyfill();
+      firstPolyfillLoad = false;
+    }
   }
   const module = await dynamicImport(!shimMode && !load.n && nativelyLoaded ? load.u : load.b, { errUrl: load.u });
   // if the top-level load is a shell, run its update function
@@ -556,7 +559,7 @@ function processScript (script) {
   const isDomContentLoadedScript = domContentLoadedCnt > 0;
   if (isBlockingReadyScript) readyStateCompleteCnt++;
   if (isDomContentLoadedScript) domContentLoadedCnt++;
-  const loadPromise = topLevelLoad(script.src || pageBaseUrl, getFetchOpts(script), !script.src && script.innerHTML, !shimMode, isBlockingReadyScript && lastStaticLoadPromise).catch(throwError);
+  const loadPromise = topLevelLoad(script.src || pageBaseUrl, pageBaseUrl, getFetchOpts(script), !script.src && script.innerHTML, !shimMode, isBlockingReadyScript && lastStaticLoadPromise).catch(throwError);
   if (isBlockingReadyScript)
     lastStaticLoadPromise = loadPromise.then(readyStateCompleteCheck);
   if (isDomContentLoadedScript)
