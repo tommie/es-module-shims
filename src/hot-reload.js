@@ -80,15 +80,16 @@ function invalidate (url, fromUrl, seen = []) {
     seen.push(url);
     const hotData = hotRegistry[url];
     if (hotData) {
-      if (hotData.u)
-        hotData.u(hotData.d);
       if (hotData.r) {
         location.href = location.href;
       } else {
-        if (hotData.a || hotData.e)
+        if (hotData.a && hotData.a.some(([d]) => d && (typeof d === 'string' ? d === fromUrl : d.includes(fromUrl)))) {
           curInvalidationRoots.add(fromUrl);
-        if (!hotData.a || !hotData.a.some(([d]) => d === fromUrl || d && d.includes(fromUrl))) {
-          if (hotData.e)
+        }
+        else {
+          if (hotData.u)
+            hotData.u(hotData.d);
+          if (hotData.e || hotData.a)
             curInvalidationRoots.add(url);
           hotData.v++;
           if (!hotData.a) {
@@ -106,25 +107,25 @@ function queueInvalidationInterval () {
     for (const root of curInvalidationRoots) {
       const promise = importShim(toVersioned(root));
       const { a, p } = hotRegistry[root];
-      promise.then(async m => {
+      promise.then(m => {
         if (a) a.every(([d, c]) => d === null && c(m));
         for (const parent of p) {
-          const { a } = hotRegistry[parent];
-          if (a) a.every(([d, c]) => d === root && c(m) || d && c(await Promise.all(d.map(d => importShim(toVersioned(d))))));
+          const hotData = hotRegistry[parent];
+          if (hotData && hotData.a) hotData.a.every(async ([d, c]) => d && (typeof d === 'string' ? d === root && c(m) : c(await Promise.all(d.map(d => importShim(toVersioned(d)))))));
         }
       });
     }
     curInvalidationRoots = new Set();
-  }, 150);
+  }, 100);
 }
 
 const websocket = new WebSocket(`ws://${esmsInitOptions.hot.host || 'localhost'}:${esmsInitOptions.hot.port || '8080'}/watch`);
 websocket.onmessage = evt => {
   const { data } = evt;
   if (data === 'Connected') {
-    console.log('ESMS Hot Reloader Successfully Connected');
-    return;
+    console.log('Hot Reload ' + data);
+  } else {
+    invalidate(new URL(data, document.baseURI).href);
+    queueInvalidationInterval();
   }
-  invalidate(new URL(data, document.baseURI).href);
-  queueInvalidationInterval();
 };
