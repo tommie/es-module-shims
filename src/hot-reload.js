@@ -2,14 +2,13 @@ class Hot {
   constructor (url) {
     this.data = getHotData(this.url = stripVersion(url)).d;
   }
-  accept (deps = [this.url], cb) {
+  accept (deps, cb) {
     if (typeof deps === 'function') {
       cb = deps;
-      deps = [this.url];
+      deps = null;
     }
     const hotData = getHotData(this.url);
-    hotData.a = cb;
-    // hotData.dl = deps.map(dep => defaultResolve(dep, this.url));
+    (hotData.a = hotData.a || []).push([typeof deps === 'string' ? defaultResolve(deps, this.url) : deps ? deps.map(d => defaultResolve(d, this.url)) : null, cb]);
   }
   dispose (cb) {
     getHotData(this.url).u = cb;
@@ -56,7 +55,7 @@ Object.assign(esmsInitOptions, {
 });
 
 let hotRegistry = {};
-let curInvalidationRoots = [];
+let curInvalidationRoots = new Set();
 let curInvalidationInterval;
 
 const getHotData = url => hotRegistry[url] || (hotRegistry[url] = {
@@ -64,7 +63,7 @@ const getHotData = url => hotRegistry[url] || (hotRegistry[url] = {
   v: 1,
   // refresh (decline)
   r: false,
-  // accept callback
+  // accept list ([deps, cb] pairs)
   a: null,
   // unload callback
   u: null,
@@ -76,50 +75,56 @@ const getHotData = url => hotRegistry[url] || (hotRegistry[url] = {
   p: []
 });
 
-function invalidate (url, seen = []) {
-  if (seen.includes(url))
-    return;
-  seen.push(url);
-  const hotData = hotRegistry[url];
-  if (!hotData) return false;
-  if (hotData.u)
-    hotData.d = hotData.u() || hotData.d;
-  if (hotData.r) {
-    location.href = location.href;
-    return true;
+function invalidate (url, fromUrl, seen = []) {
+  if (!seen.includes(url)) {
+    seen.push(url);
+    const hotData = hotRegistry[url];
+    if (hotData) {
+      if (hotData.u)
+        hotData.u(hotData.d);
+      if (hotData.r) {
+        location.href = location.href;
+      } else {
+        if (hotData.a || hotData.e)
+          curInvalidationRoots.add(fromUrl);
+        if (!hotData.a || !hotData.a.some(([d]) => d === fromUrl || d && d.includes(fromUrl))) {
+          if (hotData.e)
+            curInvalidationRoots.add(url);
+          hotData.v++;
+          if (!hotData.a) {
+            for (const parent of hotData.p)
+              invalidate(parent, url, seen);
+          }
+        }
+      }
+    }
   }
-  if (hotData.a) {
-    hotData.a();
-    return false;
-  }
-  if (hotData.e)
-    curInvalidationRoots.push(url);
-  hotData.v++;
-  let hasRoot = false;
-  for (const parent of hotData.p) {
-    hasRoot = invalidate(parent, seen);
-  }
-  if (!hasRoot)
-    curInvalidationRoots.push(url);
-  return true;
 }
 
 function queueInvalidationInterval () {
   curInvalidationInterval = setTimeout(() => {
     for (const root of curInvalidationRoots) {
-      importShim(toVersioned(root));
+      const promise = importShim(toVersioned(root));
+      const { a, p } = hotRegistry[root];
+      promise.then(async m => {
+        if (a) a.every(([d, c]) => d === null && c(m));
+        for (const parent of p) {
+          const { a } = hotRegistry[parent];
+          if (a) a.every(([d, c]) => d === root && c(m) || d && c(await Promise.all(d.map(d => importShim(toVersioned(d))))));
+        }
+      });
     }
-    curInvalidationRoots = [];
+    curInvalidationRoots = new Set();
   }, 150);
 }
 
 const websocket = new WebSocket(`ws://${esmsInitOptions.hot.host || 'localhost'}:${esmsInitOptions.hot.port || '8080'}/watch`);
 websocket.onmessage = evt => {
-  if (evt.data === 'Connected') {
+  const { data } = evt;
+  if (data === 'Connected') {
     console.log('ESMS Hot Reloader Successfully Connected');
     return;
   }
-  const url = new URL(evt.data, document.baseURI).href;
-  invalidate(url);
+  invalidate(new URL(data, document.baseURI).href);
   queueInvalidationInterval();
 };
