@@ -1,18 +1,18 @@
 class Hot {
   constructor (url) {
-    this.data = getHotData(this.url = url).d;
+    this.data = getHotData(this.url = stripVersion(url)).d;
   }
-  accept (deps, cb) {
+  accept (deps = [this.url], cb) {
     if (typeof deps === 'function') {
       cb = deps;
       deps = [this.url];
     }
-    getHotData(this.url).dc = cb;
-    hotData.dl = deps;
-    cb(...mods)
+    const hotData = getHotData(this.url);
+    hotData.a = cb;
+    // hotData.dl = deps.map(dep => defaultResolve(dep, this.url));
   }
   dispose (cb) {
-    getHotData(this.url).uc = cb;
+    getHotData(this.url).u = cb;
   }
   decline () {
     getHotData(this.url).r = true;
@@ -32,13 +32,17 @@ function stripVersion (url) {
 
 const toVersioned = url => url + '?v=' + getHotData(url).v;
 
+let defaultResolve;
+
 const esmsInitOptions = self.esmsInitOptions = self.esmsInitOptions || {};
 esmsInitOptions.hot = esmsInitOptions.hot || {};
 Object.assign(esmsInitOptions, {
-  resolve (id, parent, defaultResolve) {
+  resolve (id, parent, _defaultResolve) {
+    if (!defaultResolve)
+      defaultResolve = _defaultResolve;
     const originalParent = stripVersion(parent);
     const url = stripVersion(defaultResolve(id, originalParent));
-    const parents = parentsMap[url] = parentsMap[url] || [];
+    const parents = getHotData(url).p;
     if (!parents.includes(originalParent))
       parents.push(originalParent);
     return toVersioned(url);
@@ -55,24 +59,49 @@ let hotRegistry = {};
 let curInvalidationRoots = [];
 let curInvalidationInterval;
 
-const getHotData = url => hotRegistry[url] || (hotRegistry[url] = { v: 1, r: false, a: [], dc: null, uc: null, e: false, d: {}, p: null });
+const getHotData = url => hotRegistry[url] || (hotRegistry[url] = {
+  // version
+  v: 1,
+  // refresh (decline)
+  r: false,
+  // accept callback
+  a: null,
+  // unload callback
+  u: null,
+  // entry point
+  e: false,
+  // hot data
+  d: {},
+  // parents
+  p: []
+});
 
 function invalidate (url, seen = []) {
   if (seen.includes(url))
     return;
   seen.push(url);
-  if (refreshUrls.includes(url)) {
-    window.location.href = window.location.href;
-    return;
+  const hotData = hotRegistry[url];
+  if (!hotData) return false;
+  if (hotData.u)
+    hotData.d = hotData.u() || hotData.d;
+  if (hotData.r) {
+    location.href = location.href;
+    return true;
   }
-  if (importRoots.includes(url))
+  if (hotData.a) {
+    hotData.a();
+    return false;
+  }
+  if (hotData.e)
     curInvalidationRoots.push(url);
-  getHotData(url).v++;
-  const parents = parentsMap[url];
-  if (!parents) return;
-  for (const parent of parents) {
-    invalidate(parent, seen);
+  hotData.v++;
+  let hasRoot = false;
+  for (const parent of hotData.p) {
+    hasRoot = invalidate(parent, seen);
   }
+  if (!hasRoot)
+    curInvalidationRoots.push(url);
+  return true;
 }
 
 function queueInvalidationInterval () {
@@ -87,7 +116,7 @@ function queueInvalidationInterval () {
 const websocket = new WebSocket(`ws://${esmsInitOptions.hot.host || 'localhost'}:${esmsInitOptions.hot.port || '8080'}/watch`);
 websocket.onmessage = evt => {
   if (evt.data === 'Connected') {
-    console.log('ESMS Hot Reloader Successfully Connected')
+    console.log('ESMS Hot Reloader Successfully Connected');
     return;
   }
   const url = new URL(evt.data, document.baseURI).href;
