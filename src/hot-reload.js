@@ -119,13 +119,14 @@ function queueInvalidationInterval () {
   }, 100);
 }
 
-const websocket = new WebSocket(`ws://${esmsInitOptions.hot.host || 'localhost'}:${esmsInitOptions.hot.port || '8080'}/watch`);
+const baseURI = document.baseURI;
+const websocket = new WebSocket(`ws://${esmsInitOptions.hotHost || new URL(baseURI).host}/watch`);
 websocket.onmessage = evt => {
   const { data } = evt;
   if (data === 'Connected') {
     console.log('Hot Reload ' + data);
   } else {
-    invalidate(new URL(data, document.baseURI).href);
+    invalidate(new URL(data, baseURI).href);
     queueInvalidationInterval();
   }
 };
