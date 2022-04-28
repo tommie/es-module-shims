@@ -34,11 +34,24 @@ class HotAPI {
   }
 }
 
-self.esmsOptions = {
+const esmsInitOptions = self.esmsInitOptions = self.esmsInitOptions || {};
+esmsInitOptions.hot = esmsInitOptions.hot || {};
+Object.assign(esmsInitOptions, {
   resolve (id, parent, defaultResolve) {
-    // add version
+    console.log('resolve', id, parent);
+    return defaultResolve(id, parent);
   },
   meta (metaObj, url) {
     metaObj.hot = new HotAPI(url);
   }
+});
+
+const websocket = new WebSocket(`ws://${esmsInitOptions.hot.host || 'localhost'}:${esmsInitOptions.hot.port || '8080'}/watch`);
+websocket.onmessage = evt => {
+  if (evt.data === 'Connected') {
+    console.log('ESMS Hot Reloader Successfully Connected')
+    return;
+  }
+  const url = new URL(evt.data, document.baseURI).href;
+  console.log(url, 'CHANGED');
 };
