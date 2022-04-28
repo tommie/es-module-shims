@@ -104,14 +104,15 @@ function invalidate (url, fromUrl, seen = []) {
 
 function queueInvalidationInterval () {
   curInvalidationInterval = setTimeout(() => {
+    const earlyRoots = new Set();
     for (const root of curInvalidationRoots) {
       const promise = importShim(toVersioned(root));
       const { a, p } = hotRegistry[root];
       promise.then(m => {
-        if (a) a.every(([d, c]) => d === null && c(m));
+        if (a) a.every(([d, c]) => d === null && !earlyRoots.has(c) && c(m));
         for (const parent of p) {
           const hotData = hotRegistry[parent];
-          if (hotData && hotData.a) hotData.a.every(async ([d, c]) => d && (typeof d === 'string' ? d === root && c(m) : c(await Promise.all(d.map(d => importShim(toVersioned(d)))))));
+          if (hotData && hotData.a) hotData.a.every(async ([d, c]) => d && !earlyRoots.has(c) && (typeof d === 'string' ? d === root && c(m) : c(await Promise.all(d.map(d => (earlyRoots.push(c), importShim(toVersioned(d))))))));
         }
       });
     }
