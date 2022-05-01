@@ -132,9 +132,8 @@ const websocket = new WebSocket(`ws://${esmsInitOptions.hotHost || new URL(baseU
 websocket.onmessage = evt => {
   const { data } = evt;
   if (data === 'Connected') {
-    console.log('Hot Reload ' + data);
+    console.info('Hot Reload ' + data);
   } else {
-    console.log('CHANGE: ' + data);
     invalidate(new URL(data, baseURI).href);
     queueInvalidationInterval();
   }
