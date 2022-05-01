@@ -8,9 +8,18 @@ Object.assign(esmsInitOptions, self.esmsInitOptions || {});
 
 export let shimMode = false;
 
-if (esmsInitOptions.shimMode) setShimMode();
+export let importHook, resolveHook, fetchHook = fetch, metaHook;
 
-export let importHook, resolveHook, fetchHook, metaHook;
+if (esmsInitOptions.onimport)
+  importHook = globalHook(esmsInitOptions.onimport);
+if (esmsInitOptions.resolve)
+  resolveHook = globalHook(esmsInitOptions.resolve);
+if (esmsInitOptions.fetch)
+  fetchHook = globalHook(esmsInitOptions.fetch);
+if (esmsInitOptions.meta)
+  metaHook = globalHook(esmsInitOptions.meta);
+
+if (esmsInitOptions.shimMode) setShimMode();
 
 export const skip = esmsInitOptions.skip ? new RegExp(esmsInitOptions.skip) : null;
 
@@ -29,7 +38,7 @@ export const onpolyfill = esmsInitOptions.onpolyfill ? globalHook(esmsInitOption
   console.log('%c^^ Module TypeError above is polyfilled and can be ignored ^^', 'font-weight:900;color:#391');
 };
 
-export const { revokeBlobURLs, noLoadEventRetriggers, enforceIntegrity } = esmsInitOptions;
+export const { revokeBlobURLs, noLoadEventRetriggers, enforceIntegrity, subgraphPassthrough } = esmsInitOptions;
 
 function globalHook (name) {
   return typeof name === 'string' ? self[name] : name;
@@ -41,10 +50,6 @@ export const jsonModulesEnabled = enable.includes('json-modules');
 
 export function setShimMode () {
   shimMode = true;
-  importHook = esmsInitOptions.onimport && globalHook(esmsInitOptions.onimport);
-  resolveHook = esmsInitOptions.resolve && globalHook(esmsInitOptions.resolve);
-  fetchHook = esmsInitOptions.fetch ? globalHook(esmsInitOptions.fetch) : fetch;
-  metaHook = esmsInitOptions.meta ? globalHook(esmsInitOptions.meta) : noop;
 }
 
 export const edge = !navigator.userAgentData && !!navigator.userAgent.match(/Edge\/\d+\.\d+/);

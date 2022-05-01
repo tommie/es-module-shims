@@ -19,6 +19,7 @@ import {
   skip,
   revokeBlobURLs,
   noLoadEventRetriggers,
+  subgraphPassthrough,
   cssModulesEnabled,
   jsonModulesEnabled,
   onpolyfill,
@@ -183,7 +184,7 @@ async function topLevelLoad (url, parentUrl, fetchOpts, source, nativelyLoaded, 
   if (!shimMode)
     acceptingImportMaps = false;
   await importMapPromise;
-  if (importHook) await importHook(url, fetchOpts, parentUrl);
+  if (importHook) await importHook(url, fetchOpts, parentUrl);  
   // early analysis opt-out - no need to even fetch if we have feature support
   if (!shimMode && baselinePassthrough) {
     // for polyfill case, only dynamic import needs a return value here, and dynamic import will never pass nativelyLoaded
@@ -209,7 +210,7 @@ async function topLevelLoad (url, parentUrl, fetchOpts, source, nativelyLoaded, 
       firstPolyfillLoad = false;
     }
   }
-  const module = await dynamicImport(!shimMode && !load.n && nativelyLoaded ? load.u : load.b, { errUrl: load.u });
+  const module = await dynamicImport(!shimMode && !load.n && (subgraphPassthrough || nativelyLoaded) ? load.u : load.b, { errUrl: load.u });
   // if the top-level load is a shell, run its update function
   if (load.s)
     (await dynamicImport(load.s)).u$_(module);
@@ -220,25 +221,20 @@ async function topLevelLoad (url, parentUrl, fetchOpts, source, nativelyLoaded, 
 }
 
 function revokeObjectURLs(registryKeys) {
-  let batch = 0;
-  const keysLength = registryKeys.length;
-  const schedule = self.requestIdleCallback ? self.requestIdleCallback : self.requestAnimationFrame;
-  schedule(cleanup);
+  let curIdx = 0;
+  const handler = self.requestIdleCallback || self.requestAnimationFrame;
+  handler(cleanup);
   function cleanup() {
-    const batchStartIndex = batch * 100;
-    if (batchStartIndex > keysLength) return
-    for (const key of registryKeys.slice(batchStartIndex, batchStartIndex + 100)) {
+    for (const key of registryKeys.slice(curIdx, curIdx += 100)) {
       const load = registry[key];
       if (load) URL.revokeObjectURL(load.b);
     }
-    batch++;
-    schedule(cleanup);
+    if (curIdx < registryKeys.length)
+      handler(cleanup);
   }
 }
 
-function urlJsString (url) {
-  return `'${url.replace(/'/g, "\\'")}'`;
-}
+const urlJsString = url => `'${url.replace(/'/g, "\\'")}'`;
 
 let lastLoad;
 function resolveDeps (load, seen) {
@@ -248,6 +244,14 @@ function resolveDeps (load, seen) {
 
   for (const dep of load.d)
     resolveDeps(dep, seen);
+
+  // use direct native execution when possible
+  // load.n is therefore conservative
+  if (subgraphPassthrough && !shimMode && !load.n) {
+    load.b = lastLoad = load.u;
+    load.S = undefined;
+    return;
+  }
 
   const [imports] = load.a;
 
@@ -305,7 +309,7 @@ function resolveDeps (load, seen) {
       // import.meta
       else if (dynamicImportIndex === -2) {
         load.m = { url: load.r, resolve: metaResolve };
-        metaHook(load.m, load.u);
+        if (metaHook) metaHook(load.m, load.u);
         pushStringTo(start);
         resolvedSource += `importShim._r[${urlJsString(load.u)}].m`;
         lastIndex = statementEnd;

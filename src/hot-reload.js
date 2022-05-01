@@ -29,13 +29,20 @@ function stripVersion (url) {
   return url.slice(0, -versionMatch[0].length);
 }
 
-const toVersioned = url => url + '?v=' + getHotData(url).v;
+const toVersioned = url => {
+  const { v } = getHotData(url);
+  return url + (v ? '?v=' + v : '');
+}
 
 let defaultResolve;
+
+if (self.importShim)
+  throw new Error('Hot reloading extension must be loaded before es-module-shims.js.');
 
 const esmsInitOptions = self.esmsInitOptions = self.esmsInitOptions || {};
 esmsInitOptions.hot = esmsInitOptions.hot || {};
 Object.assign(esmsInitOptions, {
+  polyfillEnable: true,
   resolve (id, parent, _defaultResolve) {
     if (!defaultResolve)
       defaultResolve = _defaultResolve;
@@ -60,7 +67,7 @@ let curInvalidationInterval;
 
 const getHotData = url => hotRegistry[url] || (hotRegistry[url] = {
   // version
-  v: 1,
+  v: 0,
   // refresh (decline)
   r: false,
   // accept list ([deps, cb] pairs)
@@ -127,6 +134,7 @@ websocket.onmessage = evt => {
   if (data === 'Connected') {
     console.log('Hot Reload ' + data);
   } else {
+    console.log('CHANGE: ' + data);
     invalidate(new URL(data, baseURI).href);
     queueInvalidationInterval();
   }
